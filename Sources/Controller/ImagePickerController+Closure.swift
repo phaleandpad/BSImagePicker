@@ -54,6 +54,49 @@ import Photos
     }
 
     private func authorize(_ authorized: @escaping () -> Void) {
+        if #available(iOS 15, *) {
+            // iOS 15 and above: Handle new limited access case
+            authorizePhotoLibrary(authorized)
+        } else {
+            authorizePhotoLibraryLegacy(authorized)
+        }
+    }
+    
+    @available(iOS 14, *)
+    private func authorizePhotoLibrary(_ authorized: @escaping () -> Void) {
+        // Check photo library authorization status with .readWrite access (iOS 14+)
+        // Use authorizationStatus(for:) to handle the new 'limited' access case
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        switch status {
+        case .authorized:
+            DispatchQueue.main.async(execute: authorized)
+        case .limited:
+            let fetchOptions = PHFetchOptions()
+            let result = PHAsset.fetchAssets(with: .image, options: fetchOptions)
+            
+            if result.count > 0 {
+                // Proceed if user has access to some photos
+                DispatchQueue.main.async(execute: authorized)
+            } else {
+                guard #available(iOS 15, *) else {
+                    DispatchQueue.main.async(execute: authorized)
+                    return
+                }
+                
+                // If no photos accessible, prompt user with system's limited library picker (iOS 15+)
+                // so they can select more photos to grant access to.
+                PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: self) { selected in
+                    // Ensure user selected at least one photo, otherwise don't proceed
+                    guard !selected.isEmpty else { return }
+                    DispatchQueue.main.async(execute: authorized)
+                }
+            }
+        default:
+            break
+        }
+    }
+    
+    private func authorizePhotoLibraryLegacy(_ authorized: @escaping () -> Void) {
         PHPhotoLibrary.requestAuthorization { (status) in
             switch status {
             case .authorized:
